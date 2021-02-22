@@ -1,0 +1,1183 @@
+---
+title: "Challange_4i"
+author: "Felipe Freitas da Rocha"
+date: "18/02/2021"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    highlight: textmate
+---
+
+
+# Case 1
+    
+* Open the TFP.csv file attached.
+
+* The series is composed by TFP (rtfpna variable) at constant national prices (2005 = 1) for three countries: United States (USA), Canada (CAN) and Mexico (MEX).
+
+1. Make an exploratory data analysis;
+
+2. Forecast 10 years of the series (if you are performing the exercise in R, use package “forecast”);
+
+3. Check in the following link pages 2 and 3: https://cran.r-project.org/web/packages/pwt8/pwt8.pdf to see a list of all variables in the original dataset. Can you think about another feature that could be helpful in explaining TFP series? Explain.
+
+## Load the Packages  
+```{r Packages, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(forecast)
+library(pwt8)
+library(rmarkdown)
+library(stats)
+library(lmtest)
+library(lubridate)
+library(reshape2)
+library(knitr)
+library(kableExtra)
+library(urca)
+library(tsDyn)
+library(vars)
+```
+
+## Open the TFP.csv file attached  
+    
+```{r Data, message=FALSE, warning=FALSE}
+TFP <- read_csv("TFP.csv")
+  
+# we can also import the data by loading the pwt8 package:
+  
+  # TFP <- as_tibble(pwt8.0) %>%
+  #        filter(isocode %in% c("USA", "CAN", "MEX")) %>% 
+  #        select(isocode,year,rtfpna) %>% 
+  #        arrange(isocode, year)
+```
+  
+## Make an exploratory data analysis  
+  
+  The TFP database presents `r nrow(TFP)` observations (rows) an `r ncol(TFP)` variables (columns). The first variable is called **isocode** and represents 3 countries: USA (`r TFP %>% filter(isocode == "USA") %>% summarise(n = n())` observations), CAN (`r TFP %>% filter(isocode == "CAN") %>% summarise(n = n())` observations) and MEX (`r TFP %>% filter(isocode == "MEX") %>% summarise(n = n())` observations). The second corresponds to **year** (`r min (TFP $ year)`-`r max (TFP $ year)`). The third is called **rtfpna** and represents Total Factor Productivity (TFP) at constant national prices (2005 = 1). The function `summary`, `str` and `glimpse` summarize some information about the TFP database.
+ 
+```{r Summary}
+glimpse(TFP)
+summary(TFP)
+str(TFP)
+```
+ 
+Visual inspection of the data also helps us in the initial exploration. Using `ggplot` to plot the data, we have:
+  
+```{r Plot.TFP}
+#Plotting the TFP data
+
+ggplot(TFP) +
+  aes(x = year, y = rtfpna, colour = isocode) +
+  geom_line(size = 1.5) +
+  scale_color_hue() +
+  scale_x_continuous(breaks = seq(min(TFP$year),max(TFP$year),5)) +
+  scale_y_continuous(breaks = seq(0.6,1.4,0.1)) +
+  labs(x = "Year", y = "TFP", title = "TFP at constant national prices (2005 = 1)", color = "Country") +
+  theme_bw()
+```
+    
+    
+The graph above shows that, between `r min(TFP $ year)`-`r max(TFP $ year)`, the United States (USA) showed considerable TFP growth, jumping from `r TFP %>% filter(isocode == "USA", year == 1950) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 1950 to `r TFP %>% filter(isocode == "USA", year == 2011) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 2011. On the other hand, in same period, Canada's TFP was relatively constant, ranging from `r TFP%>% filter(isocode == "CAN", year == 1950) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 1950 to `r TFP %>% filter(isocode == "CAN", year == 2011) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 2011. The Mexican case shows that the TFP grew rapidly between 1950 and the early 1970s, leaving `r TFP %>% filter(isocode == "MEX", year == 1950) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 1950 to `r TFP %>% filter(isocode == "MEX", year == 1973) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 1973. Since then, Mexico's TFP has been steadily falling, reaching `r TFP %>% filter(isocode == "MEX", year == 2011) %>% summarise(rtfpna = rtfpna) %>% round(2)` in 2011. 
+  
+In addition, the graph also shows evidence that all three time series are non-stationary. In order to test whether the data are stationary, we will create the time series. 
+  
+```{r time_series.ADF_test}
+ts.USA <- TFP %>%                                    # data
+  filter(isocode == "USA") %>%                       # filter the country
+  dplyr::select(rtfpna) %>%                                 # selecting TFP variable
+  ts(start = min(TFP$year), end = max(TFP $ year))   # creating the time series
+
+ts.MEX <- TFP %>%                                    # data
+  filter(isocode == "MEX") %>%                       # filter the country
+  dplyr::select(rtfpna) %>%                                 # selecting TFP variable
+  ts(start = min(TFP$year), end = max(TFP $ year))   # creating the time series
+
+ts.CAN <- TFP %>%                                    # data
+  filter(isocode == "CAN") %>%                       # filter the country
+  dplyr::select(rtfpna) %>%                                 # selecting TFP variable
+  ts(start = min(TFP$year), end = max(TFP $ year))   # creating the time series
+```
+  
+Using Augmented Dickey–Fuller (ADF) test in the `ndiffs` function, it is possible to see that it is necessary to take the first difference for the time series to become stationary.
+  
+```{r adf.test}
+ndiffs(ts.USA, test = "adf", type = "trend")   # adf_test - number of diff necessary to became stationary
+
+ndiffs(ts.CAN, test = "adf", type = "trend")   # adf_test - number of diff necessary to became stationary
+
+ndiffs(ts.MEX, test = "adf", type = "trend")   # adf_test - number of diff necessary to became stationary
+```
+  
+### First difference
+  
+By plotting the time series in `log` transformation and in first difference with their, respective, ACF and PACF, we see that the problem of non-stationary has been solved.
+    
+#### USA
+  
+```{r first_difference.USA}
+ts.USA %>%        # data
+  log() %>%       # log transformation
+  diff() %>%      # first difference
+  ggtsdisplay()   # plotting
+```
+    
+#### MEX
+  
+```{r first_difference.MEX}
+ts.MEX %>%        # data
+  log() %>%       # log transformation
+  diff() %>%      # first difference
+  ggtsdisplay()   # plotting
+```
+  
+#### CAN
+  
+```{r first_difference.CAN}
+ts.CAN %>%        # data
+  log() %>%       # log transformation
+  diff() %>%      # first difference
+  ggtsdisplay()   # plotting
+```
+  
+## Forecast 10 years of the series (if you are performing the exercise in R, use package “forecast”)
+  
+### Choosing the model
+
+Before making the forecast we have to choose the ARIMA model that fits the data. To do this, we will use the function `auto.arima`, using the time series in `log` transformation (i.e. **lambda = 0**) and in first difference (i.e. **d=1**).
+  
+#### USA
+  
+In the case of USA, an ARIMA (0.1.0) with drift was selected. This indicates that the series **log(ts.USA)** is a Random Walk with drift. It should be noted that the choice of the model does not depend on the information criterion (i.e. both *aic* and *bic* choose the same model). 
+  
+```{r arima.USA}
+arima.bic.USA <- auto.arima(ts.USA,                     # data
+                            d=1,                        # number of diff
+                            ic = "bic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+arima.bic.USA
+
+arima.aic.USA <- auto.arima(ts.USA,                     # data
+                            d=1,                        # number of diff
+                            ic = "aic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+
+arima.aic.USA
+```
+  
+In addition, the estimated value for the drift is significant with 0.01 significance. We must check the residues using the `checkresiduals` function. There is no evidence of autocorrelation in the residuals and they have a white noise shape.
+  
+````{r check_arima.USA}
+coeftest(arima.bic.USA)        # testing the coefficients
+checkresiduals(arima.bic.USA)  # checking the residuals
+````
+  
+#### MEX
+  
+In the case of MEX, the *bic* information criterion selects an ARIMA(1,1,0), while the *aic* selects an ARIMA(1,1,1). In both cases, there is no evidence of autocorrelation in the residuals and all parameters are significant.
+  
+```{r arima.bic.MEX}
+arima.bic.MEX <- auto.arima(ts.MEX,                     # data
+                            d=1,                        # number of diff
+                            ic = "bic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+
+arima.bic.MEX
+
+coeftest(arima.bic.MEX)        # testing the coefficients
+checkresiduals(arima.bic.MEX)  # checking the residuals
+```
+  
+```{r arima.aic.MEX}
+arima.aic.MEX <- auto.arima(ts.MEX,                     # data
+                            d=1,                        # number of diff
+                            ic = "aic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+
+arima.aic.MEX
+
+coeftest(arima.aic.MEX)        # testing the coefficients
+checkresiduals(arima.aic.MEX)  # checking the residuals
+```
+  
+In order to compare these two models, we will create out-of-sample forecasts with 22 periods. We will estimate the models recursively to get the forecast one-step-ahead 22 times.
+```{r out_of_sample.bic.MEX}
+H <- 22 # number of one-step-ahead forecast
+
+test.MEX <- window(ts.MEX,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))  #test data / out-of-sample
+
+#recursive estimation of the bic model
+
+fosa.bic.MEX <- rep(0, NROW=(H))
+
+for(i in 0:(H-1)) {fosa.bic.MEX[i] <- forecast(Arima(
+                                                     window(ts.MEX, start = min(TFP$year), end = max(TFP$year)-(H-i)), # data
+                                                     order = arimaorder(arima.bic.MEX),         # order selected in auto.arima
+                                                     lambda = 0),                               # log transformation
+                                                h = 1)$mean}                                    # mean = returning only the forecast
+#one-step-ahead forecast for bic model
+
+fosa.bic.MEX <- ts(fosa.bic.MEX,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))
+```
+  
+```{r out_of_sample.aic.MEX}
+#number of one-step-ahead forecast - H = 22
+
+#recursive estimation of the aic model
+
+fosa.aic.MEX <- rep(0, NROW=(H))
+
+for(i in 0:(H-1)) {fosa.aic.MEX[i] <- forecast(Arima(
+                                                     window(ts.MEX, start = min(TFP$year), end = max(TFP$year)-(H-i)), # data
+                                                     order = arimaorder(arima.aic.MEX),         # order selected in auto.arima
+                                                     lambda = 0),                               # log transformation
+                                                h = 1)$mean}                                    # mean = returning only the forecast
+#one-step-ahead forecast for aic model
+
+fosa.aic.MEX <- ts(fosa.aic.MEX,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))
+```
+    
+Now we can test which model has the least prediction error. We will use Diebold-Mariano test for predictive accuracy. The result of the test indicates that the models have the same levels of accuracy in the forecasts.
+  
+```{r out_of_sample.MEX.test}
+eosa.bic.MEX <- test.MEX-fosa.bic.MEX # prediction error - bic model
+eosa.aic.MEX <- test.MEX-fosa.aic.MEX # prediction error - aic model
+
+dm.test(eosa.aic.MEX, eosa.bic.MEX)  # Diebold-Mariano test
+```
+  
+However, we will choose the model with the lowest Mean square prediction error (MSPE). In other words, ARIMA(1,1,1) selected by *aic*. It should be noted that we could also combine the forecasts of both models to carry out the forecast 10 years ahead.
+  
+```{r choose_arima.MEX}
+MSPE.bic.MEX <- sum(eosa.bic.MEX^2)/H  # Mean square prediction error (MSPE) - bic model
+MSPE.aic.MEX <- sum(eosa.aic.MEX^2)/H  # Mean square prediction error (MSPE) - aic model
+
+MSPE.aic.MEX < MSPE.bic.MEX   # aic model is better than bic model
+```
+  
+#### CAN
+  
+The case of CAN is very similar to the case of MEX. In the case of CAN, the *bic* information criterion selects an ARIMA(0,1,1), while the *aic*  selects an ARIMA(2,1,2).In both cases, there is no evidence of autocorrelation in the residuals and all parameters are significant. 
+  
+```{r arima.bic.CAN}
+arima.bic.CAN <- auto.arima(ts.CAN,                     # data
+                            d=1,                        # number of diff
+                            ic = "bic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+
+arima.bic.CAN
+
+coeftest(arima.bic.CAN)        # testing the coefficients
+checkresiduals(arima.bic.CAN)  # checking the residuals
+```
+  
+```{r arima.aic.CAN}
+arima.aic.CAN <- auto.arima(ts.CAN,                     # data
+                            d=1,                        # number of diff
+                            ic = "aic",                 # information criterion
+                            lambda = 0,                 # log transformation
+                            seasonal = FALSE,           # without seasonality
+                            stepwise = FALSE,           
+                            approximation = FALSE)
+
+arima.aic.CAN
+
+coeftest(arima.aic.CAN)        # testing the coefficients
+checkresiduals(arima.aic.CAN)  # checking the residuals
+```
+  
+As in MEX case, in order to compare these two models, we will create out-of-sample forecasts with `r H` periods. We will estimate the models recursively to get the forecast one-step-ahead `r H` times.
+  
+```{r out_of_sample.bic.CAN}
+#number of one-step-ahead forecast - H = 22
+
+#test data / out-of-sample
+
+test.CAN <- window(ts.CAN,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))    
+
+#recursive estimation of the bic model
+
+fosa.bic.CAN <- rep(0, NROW=(H))
+
+for(i in 0:(H-1)) {fosa.bic.CAN[i] <- forecast(Arima(
+                                                     window(ts.CAN, start = min(TFP$year), end = max(TFP$year)-(H-i)), # data
+                                                     order = arimaorder(arima.bic.CAN),         # order selected in auto.arima
+                                                     lambda = 0),                               # log transformation
+                                                h = 1)$mean}                                    # mean = returning only the forecast
+#one-step-ahead forecast for bic model
+
+fosa.bic.CAN <- ts(fosa.bic.CAN,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))
+```
+  
+```{r out_of_sample.aic.CAN}
+#number of one-step-ahead forecast - H = 22
+
+#recursive estimation of the aic model
+
+fosa.aic.CAN <- rep(0, NROW=(H))
+
+for(i in 0:(H-1)) {fosa.aic.CAN[i] <- forecast(Arima(
+                                                     window(ts.CAN, start = min(TFP$year), end = max(TFP$year)-(H-i)), # data
+                                                     order = arimaorder(arima.aic.CAN),         # order selected in auto.arima
+                                                     lambda = 0),                               # log transformation
+                                                h = 1)$mean}                                    # mean = returning only the forecast
+#one-step-ahead forecast for aic model
+
+fosa.aic.CAN <- ts(fosa.aic.CAN,
+                   start = max(TFP$year)-H+1,
+                   end = max(TFP$year))
+```
+  
+Now we can test which model has the least prediction error. We will use Diebold-Mariano test for predictive accuracy. The result of the test indicates that the bic model is better than aic model. Therefore, we will choose the ARIMA(0,1,1) selected by *bic*.
+  
+```{r out_of_sample.CAN.test}
+eosa.bic.CAN <- test.CAN-fosa.bic.CAN # prediction error - bic model
+eosa.aic.CAN <- test.CAN-fosa.aic.CAN # prediction error - aic model
+
+MSPE.bic.CAN <- sum(eosa.bic.CAN^2)/H  # Mean square prediction error (MSPE) - bic model
+MSPE.aic.CAN <- sum(eosa.aic.CAN^2)/H  # Mean square prediction error (MSPE) - aic model
+
+MSPE.aic.CAN > MSPE.bic.CAN   # bic model is better than aic model
+
+dm.test(eosa.aic.CAN, eosa.bic.CAN, alternative = "greater")  # Diebold-Mariano test confirms that bic model is better than aic model
+```
+  
+### Forecast 10 years of the series
+  
+Selecting the number of years for the forecast
+  
+```{r}
+h <- 10 # numbers of years ahead for the forecast
+```
+  
+#### USA
+  
+````{r forecast_ts.USA}
+forecast.USA <- forecast(arima.bic.USA, h=h) # forecast h years ahead
+plot(forecast.USA)
+````
+ 
+#### MEX
+  
+````{r forecast_ts.MEX}
+forecast.MEX <- forecast(arima.aic.MEX, h=h)  # forecast h years ahead
+plot(forecast.MEX)
+````
+  
+#### CAN
+  
+````{r forecast_ts.CAN}
+forecast.CAN <- forecast(arima.bic.CAN, h=h)  # forecast h years ahead
+plot(forecast.CAN)
+````
+  
+## Can you think about another feature that could be helpful in explaining TFP series? Explain.
+  
+According to the neoclassical growth theory, the total factor productivity (TFP) is related to GDP, physical capital, human capital and the labor. Therefore, when analyzing the database **pwt8.0** (we can see information with the function `help(pwt8.0)`), we can infer that it is possible to use the variables **emp**, **hc**, **rgdpna**, **rkna**, together with the variable **rtfpna**, to better explain the TFP series. The econometric techniques are based on cointegration and the vector error correction model (VECM). When variables are cointegrated, there are error correction mechanisms that combine long-term equilibrium relationships with short-term adjustment dynamics.  
+  
+The first step is to make a detailed analysis of the univariate properties of all time series. Cointegration requires two conditions: 1) there must be a set of variables of the same order of integration; and 2) their linear combination should result in a stationary series. When the time series are of different order of integration, there is certainly no relationship between them. On the other hand, if the time series present the same order of integration, then the cointegration test can be continued.  
+  
+The second step is to perform any of the various cointegration tests, such as the Johansen test, the Engle-Granger test and the ECM test. If the variables are co-integrated, we proceed with the third step, which is to estimate a VECM. The fourth step is to perform different analyzes of the model and the TFP series, such as testing Granger's causality and obtaining the impulse response functions.
+  
+
+# Case 2
+    
+* Attached to this test is a .csv file which contains data from Comexstat, which is basically the official data source for brazilian exports e imports, maintened by the government;
+* The dataset contains all trackings of monthly imports and exports of a range of products (soybeans, soybean meal, soybean oil, corn, wheat and sugar), by brazilian states, by routes (air, sea, ground, etc) e from/to which country;
+* We ask you to address a couple quentions below. Remember that data viz is one important skill to show besides any analytical skill. So we encourage you to use and explore a bunch of graphs and tables to show your point.
+  
+1. Show the evolution of total monthly and total annual exports from Brazil (all states and to everywhere) of ‘soybeans’, ‘soybean oil’ and ‘soybean meal’;
+  
+2. What are the 3 most important products exported by Brazil in the last 5 years?
+  
+3. What are the main routes through which Brazil have been exporting ‘corn’ in the last few years? Are there differences in the relative importance of routes depending on the product?
+  
+4. Which countries have been the most important trade partners for Brazil in terms of ‘corn’ and ‘sugar’ in the last 3 years?
+  
+5. For each of the products in the dataset, show the 5 most important states in terms of exports?
+  
+6. Now, we ask you to show your modelling skills. Feel free to use any type of modelling approach, but bear in mind that the modelling approach depends on the nature of your data, and so different models yield different estimates and forecasts. To help you out in this task we also provide you with a dataset of possible covariates (.xlsx). They all come from public sources (IMF, World Bank) and are presented in index number format. Question: What should be the total brazilian soybeans, soybean_meal, and corn export forecasts, in tons, for the next 11 years (2020-2030)? We’re mostly interested in the annual forecast.
+
+## Open the data_comexstat.csv file attached
+  
+We will import the data *data_comexstat.csv* and we will organize the date, separating the year and month.
+  
+```{r read_csv.data, message=FALSE, warning=FALSE}
+data_cmst <- read_csv("data_comexstat.csv")       #import data
+
+data_cmst <- data_cmst %>%                                           # data
+                    mutate(year = year(date), month = month(date))   # separating the year and month
+```
+
+## Show the evolution of total monthly and total annual exports from Brazil of ‘soybeans’, ‘soybean oil’ and ‘soybean meal’. 
+
+### Annual exports
+  
+Summarizing the necessary information:
+  
+```{r Annual.exports, message=FALSE, warning=FALSE}
+data_cmst.year <- data_cmst %>%   # data
+  filter(type == "Export", product %in% c("soybeans", "soybean_oil", "soybean_meal")) %>%  # filter export and products
+  group_by(product,year) %>% 
+  summarise(total_export.usd = sum(usd)/10^9, total_export.tons = sum(tons)/10^6) %>%  # export b.usd and m.tons by product.year
+  mutate(export.price = total_export.usd/total_export.tons*10^3) %>%    # export price
+  rename("Billions of dollars" = total_export.usd, "Millions of tons" = total_export.tons, "Exort price (US$/tons)" = export.price) %>% 
+  melt(id.vars= c("product", "year")) %>%    # turning variables into observations
+  as_tibble()
+```
+   
+#### Soybeans 
+
+Plotting the data:
+    
+```{r Soybeans.annual}
+data_cmst.year %>%
+  filter(product == "soybeans") %>%
+  ggplot() +
+    aes(x = year, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    geom_point(size = 2, colour = "#0c4c8a") +
+    labs(x = "Year", y = "Value", title = "Total Soybeans exports from Brazil (annual)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+  
+#### Soybean oil 
+
+Plotting the data:
+    
+```{r Soybean_oil.annual}
+data_cmst.year %>%
+  filter(product == "soybean_oil") %>%
+  ggplot() +
+    aes(x = year, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    geom_point(size = 2, colour = "#0c4c8a") +
+    labs(x = "Year", y = "Value", title = "Total Soybean Oil exports from Brazil (annual)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+
+#### Soybean meal 
+
+Plotting the data:
+    
+```{r Soybean_meal.annual}
+data_cmst.year %>%
+  filter(product == "soybean_meal") %>%
+  ggplot() +
+    aes(x = year, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    geom_point(size = 2, colour = "#0c4c8a") +
+    labs(x = "Year", y = "Value", title = "Total Soybean Meal exports from Brazil (annual)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+
+### Monthly exports
+  
+Summarizing the necessary information:
+  
+```{r monthly.exports, message=FALSE, warning=FALSE}
+data_cmst.month <- data_cmst %>%      # data
+  filter(type == "Export", product %in% c("soybeans", "soybean_oil", "soybean_meal")) %>%   # filter export and products
+  group_by(product,date) %>% 
+  summarise(total_export.usd = sum(usd)/10^9, total_export.tons = sum(tons)/10^6) %>%  # export b.usd and m.tons by product.month 
+  mutate(export.price = total_export.usd/total_export.tons*10^3) %>%    # export price
+  rename("Billions of dollars" = total_export.usd, "Millions of tons" = total_export.tons, "Exort price (US$/tons)" = export.price) %>% 
+  melt(id.vars= c("product", "date")) %>%         # turning variables into observations
+  as_tibble()
+```
+   
+#### Soybeans
+
+Plotting the data:
+    
+```{r Soybeans.monthly}
+data_cmst.month %>%
+  filter(product == "soybeans") %>%
+  ggplot() +
+    aes(x = date, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    labs(x = "Date", y = "Value", title = "Total Soybeans exports from Brazil (Monthly)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+  
+#### Soybean oil
+
+Plotting the data:
+    
+```{r Soybean_oil.monthly}
+data_cmst.month %>%
+  filter(product == "soybean_oil") %>%
+  ggplot() +
+    aes(x = date, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    labs(x = "Date", y = "Value", title = "Total Soybean Oil exports from Brazil (Monthly)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+
+#### Soybean meal 
+
+Plotting the data:
+    
+```{r Soybean_meal.monthly}
+data_cmst.month %>%
+  filter(product == "soybean_meal") %>%
+  ggplot() +
+    aes(x = date, y = value) +
+    geom_line(size = 1.5, colour = "#0c4c8a") +
+    labs(x = "Date", y = "Value", title = "Total Soybean Meal exports from Brazil (Monthly)") + 
+    theme_bw() +
+    facet_wrap(vars(variable), scales = "free_y")
+```
+  
+## What are the 3 most important products exported by Brazil in the last 5 years?
+  
+Selecting key arguments:
+  
+```{r key_arguments.last.5.years}
+Y <- 5 # Number of the last years
+
+n.pe <- 3 # Number of the most important products exported
+```
+  
+Tidying up the data:
+  
+```{r data_export.last.5.years, message=FALSE, warning=FALSE}
+# getting the most exported products from Brazil in the last Y years
+
+data_cmst.ly <- data_cmst %>%                       # data
+  filter(type == "Export", year > max(year)-Y) %>%  # export in the last 5 years
+  group_by(product) %>% 
+  summarise(usd.ly = sum(usd)/10^9) %>%             # export in billions of dollars by product
+  mutate(percent = usd.ly/sum(usd.ly)) %>%          # Share of the products
+  arrange(desc(usd.ly))                             # ordering                                      
+```
+  
+Plotting the data:
+  
+```{r plot.last.5.years}
+#Plotting the data:
+
+data_cmst.ly %>%  # data
+  ggplot() +      # plot
+    aes(x = reorder(product,-usd.ly), weight = usd.ly) +
+    geom_bar(fill = "#0c4c8a") +
+    labs(x = "Product", y = "Billions of dollars", title = "Export from Brazil in the last 5 years by product") +
+    theme_bw()
+```
+  
+Table the `r n.pe` most important products exported:
+  
+```{r table.last.5.years, message=FALSE, warning=FALSE}
+# generating the table
+
+data_cmst.ly %>%      # data
+  top_n(n.pe) %>%     # choosing the most exported products
+
+kable(digits = 2,
+      align = "lcc",
+      col.names = c("Product", "Export in billions of dollars", "Percent"),
+      row.names = TRUE,
+      caption = "The most important products exported by Brazil in the last 5 years (2015-2019)") %>% 
+  kable_styling(full_width = FALSE)
+```
+  
+The table and the figure above show that the 3 products (among the 6 in the `data_comexstat.csv` file attached) most exported by Brazil in the last 5 years were: `r data_cmst.ly$product[1]`, `r data_cmst.ly$product[2]` and `r data_cmst.ly$product[3]`.
+  
+## What are the main routes through which Brazil have been exporting ‘corn’ in the last few years? Are there differences in the relative importance of routes depending on the product?
+  
+Selecting key arguments:
+  
+```{r key_argument.routes, message=FALSE, warning=FALSE}
+fY <- 5 # Number of last few years
+```
+  
+Tidying up the data:
+  
+```{r data.routes, message=FALSE, warning=FALSE}
+# getting the main routes through which Brazil have been export in the last fY years for all products
+
+data_cmst.rt <- data_cmst %>%     # data
+  filter(type == "Export", year > max(year)-fY) %>%   # export in the last few (fY) years
+  group_by(product, route) %>% 
+  summarise(usd.lfy = sum(usd), tons.lfy = sum(tons)) %>%    # export in b.dollars and m.tons by product and route
+  rename("Share in value (usd)" = usd.lfy, "share in volume (tons)" = tons.lfy) %>% 
+  melt(c("product", "route"))        # turning variables into observations
+```
+ 
+Table the main routes which Brazil have been exporting corn in the last `r fY` years:
+  
+```{r table.routes, message=FALSE, warning=FALSE}
+#tidying up the data
+
+data_cmst.rt %>%      # data
+  filter(product == "corn" , variable == "Share in value (usd)") %>%   # filter corn and usd
+  dplyr::select(-variable) %>%             # removing a variable
+  mutate( value = value/10^9,
+          percent = value/sum(value)) %>%   # renaming and exchanging units
+  arrange(desc(value))  %>%      # ordering
+
+    kable(digits = 2,      #generating the table
+          align = "llcc",
+          col.names = c("Product", "Route", "Export in billions of dollars", "Percent"),
+          row.names = TRUE,
+          caption = "Main corn export routes from Brazil in the last 5 years (2015-2019)") %>% 
+    kable_styling(full_width = FALSE)
+```
+ 
+Plotting all products:
+ 
+```{r plot.routes, message=FALSE, warning=FALSE}
+# Plot the data
+
+data_cmst.rt %>%   # data
+  ggplot() +       # plot
+    aes(x = product, fill = route, weight = value) +
+    geom_bar(position = "fill") +
+    scale_fill_brewer(palette = "Spectral") +
+    labs(x = "Product", y = "Percent", title = "Main export routes from Brazil by product in the last 5 years (2015-2019)", fill = "Route") +
+    coord_flip() +
+    theme_bw() +
+    facet_wrap(vars(variable), nrow = 2L) +
+    theme(legend.position = "bottom")
+```
+  
+The table and the figure above show that the main corn export route from Brazil in the last `r fY` years was the *sea route*. Roughly speaking, all 6 products have a very similar structure to the export routes, that is, the *sea route* is by far the main one for all 6 products. However, small differences exist, such as the flow of a small portion of corn production by *river route*.
+   
+## Which countries have been the most important trade partners for Brazil in terms of ‘corn’ and ‘sugar’ in the last 3 years?
+  
+Selecting key arguments:
+  
+```{r key_arguments.trade_partners}
+y.tp <- 3 # Number of the last years
+
+n.tp <- 5 # Number of the most important trade partners
+
+prdct.tp <- c("corn", "sugar")  # in terms of ‘corn’ and ‘sugar’
+```
+  
+Tidying up the data:
+  
+```{r trade_partners.data, message=FALSE, warning=FALSE}
+
+# getting the most important trade partners (n.tp) for Brazil in terms of ‘corn’ and ‘sugar’ in the last 3 (y.tp) years
+
+data_cmst.tp <- data_cmst %>%
+  filter(year > max(year)-y.tp, product %in% prdct.tp) %>% #corn and sugar in the last.3.y
+  group_by(product, country) %>% 
+  summarise(trade = sum(usd)/10^9) %>%      # trade = Export + Import by country and product
+  mutate(percent = trade/sum(trade)) %>%    # share of each country in trade by product
+  top_n(n.tp) %>%                           # choosing the most important countries
+  arrange(product, desc(trade)) %>%         # ordering
+  mutate(n = 1:n.tp) %>%                    # numbering
+  relocate(n, .before = product)            # relocating the columns
+```
+  
+Plot the data:
+  
+```{r trade_partners.plot, message=FALSE, warning=FALSE}
+# Plotting the data "corn":
+data_cmst.tp %>%           # data
+  ggplot() +               # plot
+    aes(x = reorder(country, -trade), weight = trade) +
+    geom_bar(fill = "#0c4c8a") +
+    labs(x = "Country", y = "Billions of dollars",
+         title = "The most important trade partners in Brazil in terms of corn and sugar in the last 3 years (2017-2019)") +
+    theme_minimal() +
+    facet_wrap(vars(product), scales = "free")
+```
+  
+Table the most important trade partners for Brazil:
+  
+```{r trade_partners.table, message=FALSE, warning=FALSE}
+# generating the table
+data_cmst.tp %>%              #data
+  kable(digits =2,            #table
+        align = "lllcc",
+        col.names = c("", "Product", "Country", "Trade in billions of dollars", "Percent"),
+        caption = "The most important trade partners for Brazil by product in the last 3 years (2017-2019)") %>% 
+  kable_styling(full_width = FALSE) %>% 
+  pack_rows(index = table(rep(prdct.tp, n.tp)))
+```
+  
+The table and figure above show that, in the case of `r prdct.tp[1]`, the `r n.tp` most important trade partners for Brazil in the last `r y.tp` years were: `r data_cmst.tp$country[1]`,`r data_cmst.tp$country[2]`, `r data_cmst.tp$country[3]`, `r data_cmst.tp$country[4]` and `r data_cmst.tp$country[5]`. In the case of  `r prdct.tp[2]`, the most important were: `r data_cmst.tp$country[n.tp+1]`,`r data_cmst.tp$country[n.tp+2]`, `r data_cmst.tp$country[n.tp+3]`, `r data_cmst.tp$country[n.tp+4]` and `r data_cmst.tp$country[n.tp+5]`. It should be noted that the trade volume of these two products is relatively dispersed, when compared to soybeans, which are mainly destined for China.
+  
+## For each of the products in the dataset, show the 5 most important states in terms of exports? 
+  
+Selecting key arguments:
+  
+```{r key_arguments.states}
+n.st <- 5 # Number of the most important states
+
+prdct.st <- c("corn", "soybean_meal", "soybean_oil", "soybeans", "sugar", "wheat")
+```
+  
+Tidying up the data:
+  
+```{r states, message=FALSE, warning=FALSE}
+
+# getting the 5 most important states in terms of exports
+
+data_cmst.st <- data_cmst %>%
+  filter(type == "Export", product %in% prdct.st) %>%               # in terms of exports
+  group_by(product, state) %>% 
+  summarise(export = sum(usd)/10^9) %>%      # Export by product and state
+  mutate(percent = export/sum(export)) %>%   # share of each state in exports by product
+  top_n(n.st) %>%                            # choosing the most important states
+  arrange(product, desc(export)) %>%         # ordering
+  mutate(n = 1:n.st) %>%                     # numbering
+  relocate(n, .before = product)             # changing the order of the columns
+```
+  
+Plotting the data:
+  
+```{r states.plot}
+# plotting the data
+data_cmst.st %>%   #data
+  ggplot() +       # plot
+    aes(x = state, weight = export) +
+    geom_bar(fill = "#0c4c8a") +
+    labs(x = "State", y = "Billions of dollars", title = "The 5 most important states in terms of exports by product (1997-2019)") +
+    theme_bw() +
+    facet_wrap(vars(product), scales = "free")
+```
+ 
+Table the main exporting states of Brazil:
+  
+```{r states.table, message=FALSE, warning=FALSE}
+# generating the table
+data_cmst.st %>%     # data
+  kable(digits = 2,  # table
+        align = "lllcc",
+        col.names = c("", "Product", "State", "Export in billions of dollars", "Percent"),
+        caption = "The 5 most important states in terms of exports by product (1997-2019)") %>% 
+  kable_styling(full_width = FALSE) %>% 
+  pack_rows(index = table(rep(prdct.st, n.st)))
+```
+  
+
+
+
+##  What should be the total brazilian soybeans, soybean_meal, and corn export forecasts, in tons, for the next 11 years (2020-2030)? We’re mostly interested in the annual forecast.
+
+It should be noted that we will estimate a model for each product. For each one, we will do the modeling using three variables: exports in tons, price and world GDP (the last two variables available in the covariate database). In addition, in all cases we will use a time series econometrics approach. That is, we will do the cointegration test procedures. If the series are cointegrated, we will estimate a VECM. Then, we will transform it into a VAR and carry out the forecasts. On the other hand, if the series do not cointegrate, we will estimate a VAR in the first difference (i.e. with stationary series) and carry out the forecasts. Finally, it is worth noting that we will make a logarithmic transformation in all variables. 
+  
+Import covariates.xlsx data
+  
+```{r import_covariates.data}
+covariates <- read_excel("covariates.xlsx")
+```
+  
+### Soybeans
+  
+Tidying up the data for modeling
+  
+```{r data_model.soybeans}
+
+# generating the exports data for modeling
+
+product_s <- "soybeans"  #choosing the product
+
+covarietes_slct <- covariates %>% 
+  dplyr::select(contains(c("year", product_s,"world"))) # removing other prices and gdp
+
+
+data_s <- data_cmst %>%   # data
+  filter(product == product_s) %>%  #filter by product
+  group_by(year) %>% 
+  summarise(export_tons = sum(tons)) %>%  # export in tons by years
+  inner_join(covarietes_slct,by = "year") %>%  # joining cavariates and exports data - years contained in exports only
+  rename(price = paste0("price_",product_s)) %>%  # change the name of price variable
+  mutate_all(log) %>%   # log transformation
+  dplyr::select(-year) %>%   # removing the year variable
+  ts(start = min(data_cmst$year), end = max(data_cmst$year))  # time series
+```
+  
+First, we will analyze the stationarity of the three series in log: export (tons), price and world gdp. The result of adt test indicates that all three are integrated in order 1, I (1).
+  
+```{r adf.teste_soybens.model}
+# Making the adf test for stationarity
+  #export_tons
+data_s[,1] %>% 
+  ndiffs(test = "adf")
+  
+  #price
+data_s[,2] %>% 
+  ndiffs(test = "adf")
+
+  #gdp_world
+data_s[,3] %>% 
+  ndiffs(test = "adf")
+```
+  
+Thus, we can perform the cointegration test. We chose the Johasen cointegration test.
+  
+```{r Cointegration.test_soybeans}
+# Johansen Cointegration test
+
+ca_jo.s <- data_s %>%  # data
+  ca.jo(type = "trace",  
+        K = (VARselect(data_s)$selection %>%
+                mean() %>%
+                round()) -1) # lag selection
+
+summary(ca_jo.s)  # Johansen test results
+```
+  
+The result of the Johansen test indicates that there is 1 cointegration vector. Thus, we will define the following parameter:
+  
+```{r n_cointegration_soybeans}
+n_coint.s <- 1 # number of cointegration vector
+```
+  
+Now, we will transform the estimated VECM in the Johansen test into a VAR and we will do diagnostic tests on the residuals. All tests indicate that the model fits well.
+  
+```{r VEC_into_VAR.soybenas}
+#transforming VECM into VAR
+ VAR.s <- vec2var(ca_jo.s,       # Johansen Cointegration test model
+                r = n_coint.s) # number of cointegration vector
+ 
+ # diagnostic tests
+ serial.test(VAR.s)
+
+ arch.test(VAR.s)
+
+ normality.test(VAR.s)
+```
+  
+Therefore, we can make export forecasts for the next 11 years (2020-2030).
+  
+```{r forecast.VAR_soybeans}
+# Forecasting the exports tons
+ 
+forecast.s <- predict(VAR.s, n.ahead = 11) 
+
+forecast.s %>% 
+  fanchart(names = "export_tons", ylab = paste0("log(",product_s,"_export_tons)"), xlab = "Time",
+         main = paste0("Brazilian ", product_s, " export forecasts for the next 11 years (2020-2030)"))
+```
+  
+When performing a cross-validation we see that the model has a good forecasting capacity.
+  
+```{r Cross-validation.soybenas}
+l.s <- 3 # number of periods out-of-sample
+
+# test data - out of sample
+
+data_test.s <- data_s[,1] %>% window(start = max(data_cmst$year)+1-l.s) 
+
+# training data - inside of sample
+
+data_train_s <- data_s %>%
+                window(end = max(data_cmst$year)-l.s) 
+
+# training model
+ca_jo.train_s <- data_train_s %>% 
+  ca.jo(type = "trace",  
+        K = (VARselect(data_s)$selection %>%
+               mean() %>%
+               round()) -1) # lag selection
+
+VAR.train_s <- vec2var(ca_jo.train_s,  #transforming VECM (Johansen Cointegration test model) into VAR
+                 r = n_coint.s)   # number of cointegration vector
+
+# training forecast
+
+forecast.train_s <- predict(VAR.train_s, n.ahead = l.s) 
+forecast.train_s <- forecast.train_s[[1]]
+forecast.train_s <- data.frame(forecast.train_s$export_tons[,1:3]) %>% 
+                        rename( "forecast train" = fcst) %>% 
+                        ts(start = max(data_cmst$year)+1-l.s)
+
+#plot test data and training forecast
+
+autoplot(forecast.train_s) +
+  autolayer(data_test.s) +
+  labs(x= "Year",y= paste0("log(",product_s,"_export_tons)"),
+       title="Cross-validation of the model forecasts")
+```
+  
+### Soybeans_meal
+  
+Tidying up the data for modeling
+  
+```{r data_model.soybean_meal}
+
+# generating the exports data for modeling
+
+product_sm <- "soybean_meal"  #choosing the product
+
+covarietes_slct <- covariates %>% 
+  dplyr::select(contains(c("year", product_sm,"world"))) # removing other prices and gdp
+
+
+data_sm <- data_cmst %>%   # data
+  filter(product == product_sm) %>%  #filter by product
+  group_by(year) %>% 
+  summarise(export_tons = sum(tons)) %>%  # export in tons by years
+  inner_join(covarietes_slct,by = "year") %>%  # joining cavariates and exports data - years contained in exports only
+  rename(price = paste0("price_",product_sm)) %>%  # change the name of price variable
+  mutate_all(log) %>%   # log transformation
+  dplyr::select(-year) %>%   # removing the year variable
+  ts(start = min(data_cmst$year), end = max(data_cmst$year))  # time series
+```
+  
+We will analyze the stationarity of the three series in log: export (tons), price and world gdp. The result of adt test indicates that all three are integrated in order 1, I (1).
+  
+```{r adf.teste_soyben_meal.model}
+# Making the adf test for stationarity
+  #export_tons
+data_sm[,1] %>% 
+  ndiffs(test = "adf")
+  
+  #price
+data_sm[,2] %>% 
+  ndiffs(test = "adf")
+
+  #gdp_world
+data_sm[,3] %>% 
+  ndiffs(test = "adf")
+```
+  
+Thus, we can perform the Johasen cointegration test.
+  
+```{r Cointegration.test_soybean_meal}
+# Johansen Cointegration test
+
+ca_jo.sm <- data_sm %>%  # data
+  ca.jo(type = "trace",  
+        K = (VARselect(data_sm)$selection %>%
+                mean() %>%
+                round()) -1) # lag selection
+
+summary(ca_jo.sm)  # Johansen test results
+```
+  
+The result of the Johansen test indicates that there is 1 cointegration vector. Thus, we will define the following parameter:
+  
+```{r n_cointegration_soybean_meal}
+n_coint.sm <- 1 # number of cointegration vector
+```
+  
+Now, we will transform the estimated VECM in the Johansen test into a VAR and we will do diagnostic tests on the residuals. All tests indicate that the model fits well.
+  
+```{r VECM_into_VAR.soybean_meal}
+#transforming VECM into VAR
+ VAR.sm <- vec2var(ca_jo.sm,       # Johansen Cointegration test model
+                r = n_coint.sm) # number of cointegration vector
+ 
+ # diagnostic tests
+ serial.test(VAR.sm)
+
+ arch.test(VAR.sm)
+
+ normality.test(VAR.sm)
+```
+  
+Therefore, we can make export forecasts for the next 11 years (2020-2030).
+  
+```{r forecast.VAR_soybean_meal}
+# Forecasting the exports tons
+ 
+forecast.sm <- predict(VAR.sm, n.ahead = 11) 
+
+# plot
+forecast.sm %>% 
+  fanchart(names = "export_tons", ylab = paste0("log(",product_sm,"_export_tons)"), xlab = "Time",
+         main = paste0("Brazilian ", product_sm, " export forecasts for the next 11 years (2020-2030)"))
+```
+  
+When doing a cross-validation we see that the corn model does not have as good a forecasting capacity as the soybean and soybean meal models.
+  
+```{r Cross-validation.soybean_meal}
+l.sm <- 3 # number of periods out-of-sample
+
+# test data - out of sample
+
+data_test.sm <- data_sm[,1] %>% window(start = max(data_cmst$year)+1-l.sm) 
+
+# training data - inside of sample
+
+data_train_sm <- data_sm %>%
+                window(end = max(data_cmst$year)-l.sm) 
+
+# training model
+ca_jo.train_sm <- data_train_sm %>% 
+  ca.jo(type = "trace",  
+        K = (VARselect(data_sm)$selection %>%
+               mean() %>%
+               round()) -1) # lag selection
+
+VAR.train_sm <- vec2var(ca_jo.train_sm,  #transforming VECM (Johansen Cointegration test model) into VAR
+                 r = n_coint.sm)   # number of cointegration vector
+
+# training forecast
+
+forecast.train_sm <- predict(VAR.train_sm, n.ahead = l.sm) 
+forecast.train_sm <- forecast.train_sm[[1]]
+forecast.train_sm <- data.frame(forecast.train_sm$export_tons[,1:3]) %>% 
+                        rename( "forecast train" = fcst) %>% 
+                        ts(start = max(data_cmst$year)+1-l.sm)
+
+#plot test data and training forecast
+
+autoplot(forecast.train_sm) +
+  autolayer(data_test.sm) +
+  labs(x= "Year",y= paste0("log(",product_sm,"_export_tons)"),
+       title="Cross-validation of the model forecasts")
+```
+  
+### Corn
+  
+Tidying up the data for modeling
+  
+```{r data_model.corn}
+# generating the exports data for modeling
+
+product_c <- "corn"  #choosing the product
+
+covarietes_slct <- covariates %>% 
+  dplyr::select(contains(c("year", product_c,"world"))) # removing price of other products
+
+
+data_c <- data_cmst %>%   # data
+  filter(product == product_c) %>%  #filter by product
+  group_by(year) %>% 
+  summarise(export_tons = sum(tons)) %>%  # export in tons by years
+  inner_join(covarietes_slct,by = "year") %>%  # joining cavariates and exports data - years contained in exports only
+  rename(price = paste0("price_",product_c)) %>%
+  mutate_all(log) %>%   # log transformation
+  dplyr::select(-year) %>% 
+  ts(start = min(data_cmst$year), end = max(data_cmst$year))  # time series
+```
+  
+We will analyze the stationarity of the three series in log: export (tons), price and world gdp. The result of adt test indicates that all three are integrated in order 1, I (1).
+  
+```{r adf.test.corn}
+# Making the adf test for stationarity
+#export_tons
+data_c[,1] %>% 
+  ndiffs(test = "adf")
+
+#price
+data_c[,2] %>% 
+  ndiffs(test = "adf")
+
+#gdp_world
+data_c[,3] %>% 
+  ndiffs(test = "adf")
+```
+  
+Thus, we can perform the Johasen cointegration test. Unlike the case of soybeans and soybeam_meal, in the case of corn the result of the Johansen test indicates that the series do not cointegrate.
+  
+```{r Cointegration.test_corn}
+# Johansen Cointegration test
+
+ca_jo.c <- data_c %>%  # data
+  ca.jo(type = "trace",  
+        K = (VARselect(data_c)$selection %>%
+               mean() %>%
+               round()) -1) # lag selection
+summary(ca_jo.c)  # Johansen test results
+                  # number of cointegration vector = 0
+```
+  
+In this way, we will estimate a VAR with the series in first difference (that is, with stationary series) and we will carry out diagnostic tests of the residuals. All results indicate that the model has a good fit.
+  
+```{r VAR.corn}
+# estimating the VAR
+
+VAR.c <- diff(data_c) %>%
+              VAR(p = VARselect(data_c)$selection %>%
+                      mean() %>%
+                      round()) # lag selection
+                           
+# diagnostic tests
+
+serial.test(VAR.c)
+
+arch.test(VAR.c)
+
+normality.test(VAR.c)
+```
+     
+Therefore, we can make export forecasts for the next 11 years (2020-2030).
+   
+```{r forescat.var.corn}
+# Forecasting the exports tons
+
+forecast.c <- predict(VAR.c, n.ahead = 11)
+
+# Plot
+forecast.c %>% 
+  fanchart(names = "export_tons", ylab = "growth rate of corn exports", xlab = "Time",
+           main = paste0("Brazilian ", product_c, " export forecasts for the next 11 years (2020-2030)"))
+```
+   
+When doing a cross-validation we see that the corn model does not have as good a forecasting capacity as the soybean and soybean meal models.
+  
+```{r corn.train}
+
+l.c <- 3 # number of periods out-of-sample
+
+# test data - out of sample
+
+data_test.c <- diff(data_c)[,1] %>% window(start = max(data_cmst$year)+1-l.c) 
+
+# training data - inside of sample
+
+data_train_c <- data_c %>%
+                window(end = max(data_cmst$year)-l.c) 
+
+# training model
+VAR.train_c <- diff(data_train_c) %>%
+  VAR(p = VARselect(data_c)$selection %>%
+        mean() %>%
+        round()) # lag selection
+
+
+# training forecast
+forecast.train_c <- predict(VAR.train_c, n.ahead = l.c) 
+forecast.train_c <- forecast.train_c[[1]]
+forecast.train_c <- data.frame(forecast.train_c$export_tons[,1:3]) %>% 
+                        rename( "forecast train" = fcst) %>% 
+                        ts(start = max(data_cmst$year)+1-l.c)
+#plot test data and training forecast
+
+autoplot(forecast.train_c) +
+  autolayer(data_test.c) +
+  labs(x= "Year",y= "Growth rate",
+       title="Cross-validation of the model forecasts")
+
+```
+
